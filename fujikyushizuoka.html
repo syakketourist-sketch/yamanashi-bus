@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>富士急バス（静岡・シティ） リアルタイム運行状況</title>
+  <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; padding: 15px; background-color: #f4f6f8; max-width: 600px; margin: 0 auto; }
+    h1 { font-size: 1.3rem; color: #b81c22; text-align: center; } /* 富士急イメージカラー(赤系) */
+    .btn-container { text-align: center; margin-bottom: 15px; }
+    button { padding: 10px 24px; font-size: 1rem; font-weight: bold; background-color: #b81c22; color: white; border: none; border-radius: 20px; cursor: pointer; box-shadow: 0 2px 4px rgba(0,0,0,0.2); }
+    button:active { background-color: #8a1217; }
+    #status { text-align: center; font-size: 0.85rem; color: #666; margin-bottom: 15px; }
+    .card { background: white; padding: 15px; margin-bottom: 12px; border-radius: 10px; box-shadow: 0 2px 5px rgba(0,0,0,0.05); border-left: 5px solid #b81c22; }
+    .bus-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 6px; }
+    
+    .bus-no { font-size: 1.15rem; font-weight: bold; }
+    .bus-no a { color: #b81c22; text-decoration: underline; font-weight: bold; }
+    
+    /* 会社名のバッジ装飾 */
+    .company-badge { font-size: 0.75rem; font-weight: bold; padding: 2px 6px; border-radius: 4px; margin-left: 6px; display: inline-block; vertical-align: middle; }
+    .bg-shizuoka { background-color: #e3f2fd; color: #0d47a1; } /* 静岡バス：青系 */
+    .bg-city { background-color: #fbe9e7; color: #d84315; }     /* シティバス：オレンジ系 */
+    
+    .delay { color: #d9534f; font-weight: bold; background: #ffebee; padding: 2px 8px; border-radius: 4px; font-size: 0.85rem; white-space: nowrap; }
+    .on-time { color: #2e7d32; background: #e8f5e9; padding: 2px 8px; border-radius: 4px; font-size: 0.85rem; white-space: nowrap; }
+    .route-name { font-weight: bold; color: #333; margin-bottom: 6px; line-height: 1.4; }
+    .info { font-size: 0.85rem; color: #666; }
+    .nav-link { text-align: center; margin-top: 20px; font-size: 0.9rem; }
+    .nav-link a { color: #005a9c; text-decoration: underline; }
+  </style>
+</head>
+<body>
+
+  <h1>富士急バス 位置情報<br><small style="font-size:0.8rem; font-weight:normal;">（静岡バス・シティバス合体版）</small></h1>
+  
+  <div class="btn-container">
+    <button onclick="fetchData()">最新情報に更新</button>
+  </div>
+  
+  <div id="status">ボタンを押すか、自動読み込みをお待ちください...</div>
+  <div id="busContainer"></div>
+
+  <div class="nav-link">
+    <a href="index.html">➔ 山梨交通の運行状況はこちら</a>
+  </div>
+
+  <script>
+    // ★ご自身の富士急用 Worker URL に書き換えてください
+    const WORKER_URL = "https://fujikyu-bus-api.syakketourist.workers.dev/";
+
+    async function fetchData() {
+      const status = document.getElementById("status");
+      const container = document.getElementById("busContainer");
+      status.innerText = "最新データを取得中...";
+      container.innerHTML = "";
+
+      try {
+        const res = await fetch(WORKER_URL + "?t=" + new Date().getTime());
+        if (!res.ok) throw new Error("通信エラー");
+        const buses = await res.json();
+
+        if (!Array.isArray(buses) || buses.length === 0) {
+          status.innerText = "現在運行中の富士急バス（静岡・シティ）はありません。";
+          return;
+        }
+
+        const now = new Date();
+        const timeStr = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+        status.innerText = `最終更新: ${timeStr} （${buses.length}台 運行中）`;
+
+        buses.forEach(bus => {
+          const delayBadge = bus.delayMinutes > 0 
+            ? `<span class="delay">${bus.delayMinutes}分遅れ</span>` 
+            : `<span class="on-time">ほぼ定刻</span>`;
+
+          const busNoHtml = bus.mapLink 
+            ? `<a href="${bus.mapLink}" target="_blank" rel="noopener noreferrer">${bus.deviceUid} 📍</a>`
+            : bus.deviceUid;
+
+          // 会社名バッジの判定
+          const companyClass = bus.companyName.includes("静岡") ? "bg-shizuoka" : "bg-city";
+          const companyBadge = `<span class="company-badge ${companyClass}">${bus.companyName}</span>`;
+
+          const passedText = bus.passedStops || "位置取得中";
+
+          const card = `
+            <div class="card">
+              <div class="bus-header">
+                <span class="bus-no">${busNoHtml} ${companyBadge}</span>
+                ${delayBadge}
+              </div>
+              <div class="route-name">${bus.routeNumber}</div>
+              <div class="info">状況: ${passedText}</div>
+            </div>
+          `;
+          container.innerHTML += card;
+        });
+
+      } catch (e) {
+        status.innerText = "データの取得に失敗しました。";
+        console.error(e);
+      }
+    }
+
+    window.onload = fetchData;
+  </script>
+</body>
+</html>
