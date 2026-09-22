@@ -1,0 +1,362 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>さーちゃんスマホ利用時間</title>
+  <style>
+    :root {
+      --primary-color: #4A90E2;
+      --bg-color: #F4F7F6;
+      --card-bg: #FFFFFF;
+      --text-color: #333333;
+      --alert-color: #E74C3C;
+      --safe-color: #2ECC71;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+      background-color: var(--bg-color);
+      color: var(--text-color);
+      margin: 0;
+      padding: 20px;
+      display: flex;
+      justify-content: center;
+    }
+
+    .container {
+      width: 100%;
+      max-width: 500px;
+      background: var(--card-bg);
+      border-radius: 16px;
+      box-shadow: 0 4px 20px rgba(0,0,0,0.08);
+      padding: 24px;
+      box-sizing: border-box;
+    }
+
+    h1 {
+      font-size: 1.4rem;
+      text-align: center;
+      margin-top: 0;
+      margin-bottom: 4px;
+      color: var(--primary-color);
+    }
+
+    .today-date {
+      text-align: center;
+      font-size: 0.9rem;
+      color: #666;
+      margin-bottom: 20px;
+      font-weight: 500;
+    }
+
+    .card {
+      background: #F8FAFC;
+      border-radius: 12px;
+      padding: 16px;
+      margin-bottom: 16px;
+      border-left: 5px solid var(--primary-color);
+    }
+
+    .card.highlight {
+      background: #EBF3FA;
+      border-left-color: #3182CE;
+    }
+
+    .card-label {
+      font-size: 0.85rem;
+      color: #666;
+      margin-bottom: 4px;
+    }
+
+    .card-value {
+      font-size: 1.8rem;
+      font-weight: bold;
+      color: #2D3748;
+    }
+
+    .remaining-value {
+      color: var(--safe-color);
+    }
+
+    .remaining-value.warning {
+      color: var(--alert-color);
+    }
+
+    .sub-info {
+      font-size: 0.85rem;
+      color: #666;
+      margin-top: 6px;
+      line-height: 1.4;
+    }
+
+    .daily-pace {
+      margin-top: 8px;
+      padding-top: 8px;
+      border-top: 1px dashed #CBD5E0;
+      font-size: 0.95rem;
+      font-weight: bold;
+      color: #2B6CB0;
+    }
+
+    .footer-message {
+      text-align: center;
+      margin-top: 24px;
+      padding-top: 16px;
+      border-top: 1px solid #E2E8F0;
+      font-size: 1.05rem;
+      font-weight: bold;
+      color: #E53E3E;
+    }
+
+    .loading, .error {
+      text-align: center;
+      padding: 20px;
+      font-size: 0.9rem;
+      color: #666;
+    }
+
+    .error {
+      color: var(--alert-color);
+    }
+  </style>
+</head>
+<body>
+
+<div class="container">
+  <h1>📱 さーちゃんスマホ利用時間</h1>
+  <div class="today-date" id="display-today-date">📅 -</div>
+
+  <div id="loading" class="loading">データを読み込んでいます...</div>
+  <div id="error" class="error" style="display: none;"></div>
+
+  <div id="content" style="display: none;">
+    <!-- 昨日使った時間 -->
+    <div class="card">
+      <div class="card-label">昨日使った時間</div>
+      <div class="card-value" id="yesterday-hours">-</div>
+    </div>
+
+    <!-- 直近10日間平均 -->
+    <div class="card">
+      <div class="card-label">直近10日間の平均（今日〜前10日間）</div>
+      <div class="card-value" id="avg-10days">-</div>
+    </div>
+
+    <!-- 今月の平均 -->
+    <div class="card">
+      <div class="card-label">今月（1日〜今日）の平均（1日あたり）</div>
+      <div class="card-value" id="avg-monthly">-</div>
+    </div>
+
+    <!-- 残り利用可能時間 -->
+    <div class="card highlight">
+      <div class="card-label">今月あと使える時間（目安）</div>
+      <div class="card-value remaining-value" id="remaining-hours">-</div>
+      <div class="sub-info" id="month-target-info">今月の目標: -</div>
+      <div class="daily-pace" id="daily-pace-info">1日あたりの目安: -</div>
+    </div>
+
+    <!-- 最下部メッセージ -->
+    <div class="footer-message">
+      おとーちんのためにがんばってね
+    </div>
+  </div>
+</div>
+
+<script>
+  // スプレッドシートIDから直接CSVを出力する安定用エンドポイント
+  const SHEET_ID = '1mN6IDqzhSwl6wMuOCdzqav1cxw7SU_DspyuBonx9cqM';
+  const PRIMARY_URL = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?tqx=out:csv`;
+  const BACKUP_URL = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vS4jtSCfwqqIXekT3koXuDagVa2DembUfvWAPHbxp4In9tL828aCbBUWMNv7457jfJUyn4TCPH2BnK7/pub?output=csv';
+
+  // 本日の日付を取得＆表示設定
+  const today = new Date();
+  const dayNames = ['日', '月', '火', '水', '木', '金', '土'];
+  document.getElementById('display-today-date').innerText = 
+    `📅 ${today.getFullYear()}年${today.getMonth() + 1}月${today.getDate()}日 (${dayNames[today.getDay()]})`;
+
+  async function fetchData() {
+    let csvText = '';
+    try {
+      // メインURLから取得試行
+      let response = await fetch(PRIMARY_URL);
+      if (!response.ok) {
+        // 失敗した場合はバックアップURLを使用
+        response = await fetch(BACKUP_URL);
+      }
+      if (!response.ok) throw new Error('HTTPエラー: ' + response.status);
+      
+      csvText = await response.text();
+      processData(csvText);
+    } catch (err) {
+      console.error('Fetch error:', err);
+      document.getElementById('loading').style.display = 'none';
+      const errorEl = document.getElementById('error');
+      errorEl.style.display = 'block';
+      errorEl.innerText = 'データを読み込めませんでした。スプレッドシートのアクセス権限（リンクを知っている全員が閲覧可）をご確認ください。';
+    }
+  }
+
+  function formatDateKey(dateObj) {
+    const y = dateObj.getFullYear();
+    const m = String(dateObj.getMonth() + 1).padStart(2, '0');
+    const d = String(dateObj.getDate()).padStart(2, '0');
+    return `${y}-${m}-${d}`;
+  }
+
+  function parseDate(dateStr) {
+    if (!dateStr) return null;
+    const cleanStr = dateStr.replace(/"/g, '').trim();
+    
+    const parts = cleanStr.split(/[\/\-]/);
+    if (parts.length === 3) {
+      const y = parseInt(parts[0], 10);
+      const m = parseInt(parts[1], 10) - 1;
+      const d = parseInt(parts[2], 10);
+      const dt = new Date(y, m, d);
+      if (!isNaN(dt.getTime())) return dt;
+    }
+    
+    const fallbackDate = new Date(cleanStr);
+    return isNaN(fallbackDate.getTime()) ? null : fallbackDate;
+  }
+
+  function parseTimeStringToHours(timeStr) {
+    if (!timeStr) return 0;
+    const clean = timeStr.replace(/"/g, '').trim();
+    
+    if (!isNaN(clean) && clean !== '') {
+      return parseFloat(clean);
+    }
+
+    const parts = clean.split(':');
+    if (parts.length >= 2) {
+      const hours = parseInt(parts[0], 10) || 0;
+      const minutes = parseInt(parts[1], 10) || 0;
+      return hours + (minutes / 60);
+    }
+
+    return 0;
+  }
+
+  function formatHoursToHM(hoursNum) {
+    if (hoursNum <= 0) return '0分';
+    const totalMinutes = Math.round(hoursNum * 60);
+    const h = Math.floor(totalMinutes / 60);
+    const m = totalMinutes % 60;
+    
+    if (h === 0) return `${m}分`;
+    if (m === 0) return `${h}時間`;
+    return `${h}時間${m}分`;
+  }
+
+  function parseCSVLine(line) {
+    const result = [];
+    let current = '';
+    let inQuotes = false;
+    
+    for (let i = 0; i < line.length; i++) {
+      const char = line[i];
+      if (char === '"') {
+        inQuotes = !inQuotes;
+      } else if (char === ',' && !inQuotes) {
+        result.push(current);
+        current = '';
+      } else {
+        current += char;
+      }
+    }
+    result.push(current);
+    return result;
+  }
+
+  function processData(csvText) {
+    const lines = csvText.replace(/\r/g, '').trim().split('\n');
+    const recordsMap = {};
+
+    for (let i = 1; i < lines.length; i++) {
+      if (!lines[i].trim()) continue;
+      const cols = parseCSVLine(lines[i]);
+      
+      if (cols.length >= 4 && cols[0] && cols[3] !== undefined && cols[3] !== '') {
+        const date = parseDate(cols[0]);
+        const hours = parseTimeStringToHours(cols[3]);
+        
+        if (date !== null) {
+          recordsMap[formatDateKey(date)] = hours;
+        }
+      }
+    }
+
+    const currentYear = today.getFullYear();
+    const currentMonth = today.getMonth();
+    const currentDate = today.getDate();
+    const daysInCurrentMonth = new Date(currentYear, currentMonth + 1, 0).getDate();
+
+    // 1. 昨日使った時間
+    const yesterday = new Date(today);
+    yesterday.setDate(today.getDate() - 1);
+    const yesterdayHours = recordsMap[formatDateKey(yesterday)] || 0;
+
+    // 2. 直近10日間の平均（今日から遡って過去10日間）
+    let past10Total = 0;
+    let past10Count = 0;
+    for (let i = 0; i < 10; i++) {
+      const targetDate = new Date(today);
+      targetDate.setDate(today.getDate() - i);
+      const key = formatDateKey(targetDate);
+      if (key in recordsMap) {
+        past10Total += recordsMap[key];
+        past10Count++;
+      }
+    }
+    const recent10Avg = past10Count > 0 ? (past10Total / past10Count) : 0;
+
+    // 3. 今月の平均（1日〜今日まで）
+    let monthlyTotalHours = 0;
+    let monthlyCount = 0;
+    for (let d = 1; d <= currentDate; d++) {
+      const targetDate = new Date(currentYear, currentMonth, d);
+      const key = formatDateKey(targetDate);
+      if (key in recordsMap) {
+        monthlyTotalHours += recordsMap[key];
+        monthlyCount++;
+      }
+    }
+    const monthlyAvg = monthlyCount > 0 ? (monthlyTotalHours / monthlyCount) : 0;
+
+    // 4. 残り利用可能時間 & 1日あたりのペース
+    const monthTargetHours = daysInCurrentMonth * 1;
+    const remainingHours = monthTargetHours - monthlyTotalHours;
+    const remainingDaysInMonth = (daysInCurrentMonth - currentDate) + 1;
+    const dailyPaceHours = remainingHours > 0 ? (remainingHours / remainingDaysInMonth) : 0;
+
+    // 表示反映
+    document.getElementById('yesterday-hours').innerText = formatHoursToHM(yesterdayHours);
+    document.getElementById('avg-10days').innerText = formatHoursToHM(recent10Avg);
+    document.getElementById('avg-monthly').innerText = formatHoursToHM(monthlyAvg);
+    
+    const remainingEl = document.getElementById('remaining-hours');
+    remainingEl.innerText = formatHoursToHM(remainingHours);
+    
+    if (remainingHours < 5) {
+      remainingEl.classList.add('warning');
+    }
+
+    document.getElementById('month-target-info').innerText = 
+      `今月の目標: ${monthTargetHours}時間以内（現在 ${formatHoursToHM(monthlyTotalHours)} 使用中）`;
+
+    document.getElementById('daily-pace-info').innerText = 
+      `💡 今月あと ${remainingDaysInMonth}日：1日あたり約 ${formatHoursToHM(dailyPaceHours)} 使えます`;
+
+    // 画面切り替え
+    document.getElementById('loading').style.display = 'none';
+    document.getElementById('content').style.display = 'block';
+  }
+
+  fetchData();
+</script>
+
+</body>
+</html>
